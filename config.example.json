@@ -1,0 +1,28 @@
+{
+  "_說明": "複製成 config.local.json 再修改；沒有 config.local.json 時使用程式內建的預設值（等同本檔）。以底線開頭的欄位會被忽略。",
+  "_role": "你的職能：通用／工程／營運・HR／業務／設計／主管。決定 ① 決策密度門檻、預設高風險主題、額外的不可逆指令與建議舉例；休息、切換、判斷品質的門檻不隨職能改變。下面寫了的欄位會蓋過職能預設",
+  "role": null,
+  "_high_risk_keywords": "你自己工作裡的高風險主題與權重，命中就算「高度重要訊息」。空白＝只用通用規則。例：HR 可填 {\"調薪\": 5, \"離職\": 5}；業務可填 {\"報價\": 4, \"折扣\": 3}；工程可填 {\"production\": 5}",
+  "high_risk_keywords": {},
+  "_irreversible_patterns": "Shell 指令含這些字串就算「高度重要動作」（不分大小寫）",
+  "irreversible_patterns": ["git push", "rm -rf", "drop table", "--force"],
+  "_timezone": "null＝使用這台電腦的時區；或填 \"+08:00\" 這種形式",
+  "timezone": null,
+  "_time_segments": "時段邊界（小時，0–24）；late_night 為 true 的時段會套用「深夜」規則",
+  "time_segments": [
+    {"name": "早", "start": 6, "end": 12},
+    {"name": "中", "start": 12, "end": 18},
+    {"name": "晚", "start": 18, "end": 22},
+    {"name": "深夜", "start": 22, "end": 6, "late_night": true}
+  ],
+  "_fatigue_block_min": "訊息發出時，所在活動段已連續幾分鐘沒有 10 分鐘以上的休息，就算「疲勞情境」。工程慣例，不是研究門檻",
+  "fatigue_block_min": 60,
+  "_risk_levels": "四個階段各自的 [低→中, 中→高] 門檻（經驗值，可只改其中幾個）。density＝每活躍小時訊息數；recovery＝最長一段沒有 10 分鐘休息（分）；fatigue＝每活躍小時切換次數；judgement＝長內容秒回比例",
+  "risk_levels": {"density": [25, 45], "recovery": [60, 120], "fatigue": [6, 12], "judgement": [0.10, 0.25]},
+  "long_output_chars": 400,
+  "fast_accept_sec": 5,
+  "claude_projects": "~/.claude/projects",
+  "codex_sessions": "~/.codex/sessions",
+  "_generic_dirnames": "顯示專案名時，這些通用資料夾名會多帶一層上層目錄（例如 my-app/scripts）",
+  "generic_dirnames": ["scripts", "src", "scratchpad", "app", "docs", "lib"]
+}

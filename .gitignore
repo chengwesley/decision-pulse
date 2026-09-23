@@ -1,0 +1,6 @@
+config.local.json
+__pycache__/
+*.pyc
+*.html
+pulse-clock/state.json
+history/
