@@ -10,7 +10,9 @@ description: >
   「我今天 AI 壓力」、「我的 AI 決策品質」、「AI 使用狀況」、「今天用 AI 用得怎樣」、
   「我是不是 AI 用太兇」、「今天用了多少 AI」、「我該休息了嗎」、「我今天工作節奏」、
   「今天切換太多嗎」、「AI 疲勞」、「AI burnout」、「AI 用量」，
-  或其他在問「自己今天使用 AI 的負荷、疲勞、專注、決策品質」的說法時，立即使用此 skill。
+  英文如 "how's my AI usage today"、"am I overloaded"、"should I take a break"、
+  "my AI decision quality"、"am I switching too much"、"AI fatigue"、"decision pulse"，
+  或其他在問「自己今天使用 AI 的負荷、疲勞、專注、決策品質」的說法（任何語言）時，立即使用此 skill。
   只在使用者要問時才查，不主動推播。所有人通用，個人差異放在設定檔。
 metadata:
   author: Wesley
