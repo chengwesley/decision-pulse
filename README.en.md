@@ -6,7 +6,7 @@
 
 Decision Pulse is an agent skill (standard `SKILL.md` format) that you can install in Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor. It reads today's Claude Code and Codex transcripts on your own computer, builds a one-page dashboard showing where the day got heavy, and adds a few gentle suggestions backed by cognitive science.
 
-> **Heads-up: the dashboard itself is Traditional Chinese only.** This README is in English so you can install and configure it, but the page it produces, the stage names and the suggestions are in Chinese for now.
+> **The whole interface works in English**: the dashboard, the suggestions and the desktop clock. Set `"lang": "en"` in `config.local.json` (the AI does this for you the first time if you ask in English).
 
 ---
 
@@ -97,7 +97,7 @@ Just ask in plain language (in Claude Code you can also type `/decision-pulse`),
 
 You don't need exact words. Any question about your own AI workload, fatigue, focus or decision quality today should trigger it.
 
-The first time, the AI asks for your role once (see below). The dashboard is an HTML file: Claude shows it as a page, other tools tell you where the file is so you can open it in a browser.
+The first time, the AI sets the interface language from the language you asked in and asks for your role once (see below). The dashboard is an HTML file: Claude shows it as a page, other tools tell you where the file is so you can open it in a browser.
 
 You can also run the script directly (use your own install path):
 
@@ -108,7 +108,8 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 | Option | What it does |
 |---|---|
 | `--date 2026-09-22` | Look at a specific day (default: today) |
-| `--role 工程` | Try another role's thresholds without editing your config (role names are in Chinese, see the table below) |
+| `--role engineering` | Try another role's thresholds without editing your config |
+| `--lang en` | Try the other interface language without editing your config (`en` or `zh-TW`) |
 | `--html <path>` | Write the dashboard page |
 | `--json` | Also print the full JSON |
 | `--save` | Save that day's page and data into `history/` (one per date), so the same day can be reopened without rescanning |
@@ -116,26 +117,26 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 
 ## Desktop clock (optional)
 
-If you'd rather not ask every time, open `pulse-clock/pulse-clock.pyw`: a small round clock for a corner of your screen. The four arcs around it are the four stages' levels (green / yellow / orange), and the center shows the time and how long your current stretch has lasted. It refreshes every 30 minutes; click it to see the numbers and a suggestion. No notifications. See [`pulse-clock/README.md`](pulse-clock/README.md) (Chinese).
+If you'd rather not ask every time, open `pulse-clock/pulse-clock.pyw`: a small round clock for a corner of your screen. The four arcs around it are the four stages' levels (green / yellow / orange), and the center shows the time and how long your current stretch has lasted. It refreshes every 30 minutes; click it to see the numbers and a suggestion. No notifications. It uses the same language setting as the dashboard. See [`pulse-clock/README.md`](pulse-clock/README.md) (Chinese).
 
 ## Roles
 
 "Normal" looks different in different jobs. An engineer may go back and forth with AI all day; a manager's job is switching between things. So some thresholds depend on your role.
 
-Role names are stored in Chinese. Use the value in the second column for `--role` and for `"role"` in `config.local.json`.
+Use the value in the second column for `--role` and for `"role"` in `config.local.json`.
 
-| Role | Value | ① Density thresholds (messages / active hour) | Default high-risk topics |
+| Role | Value | ① Density thresholds (messages / active hour) | Default high-risk topics (English interface) |
 |---|---|---|---|
-| General | `通用` | 25 / 45 | (none) |
-| Engineering | `工程` | 40 / 70 | production, 上線 (go-live), deploy, migration, 資料庫 (database), 權限 (permissions), secret |
-| Operations / HR | `營運・HR` (or `HR`) | 25 / 45 | pay raise, salary, resignation, layoff, offer, grievance, contract, signing, access revocation, personal data (Chinese keywords) |
-| Sales | `業務` | 20 / 40 | quote, discount, contract, signing, refund, payment terms (Chinese keywords) |
-| Design | `設計` | 20 / 40 | go-live, public release, brand (Chinese keywords) |
-| Manager | `主管` | 15 / 30 | budget, personnel, performance, review, reorg, contract (Chinese keywords) |
+| General | `general` | 25 / 45 | (none) |
+| Engineering | `engineering` | 40 / 70 | production, go-live, deploy, migration, database, permission, secret |
+| Operations / HR | `hr` (or `ops`) | 25 / 45 | pay raise, salary, resignation, layoff, offer letter, grievance, contract, signing, revoke access, personal data |
+| Sales | `sales` | 20 / 40 | quote, discount, contract, sign the deal, refund, payment terms |
+| Design | `design` | 20 / 40 | go-live, public release, brand |
+| Manager | `manager` | 15 / 30 | budget, headcount, performance, appraisal, reorg, contract |
 
 **A role can change what counts as normal. It can't change what is a load on the brain.** Break, switching and judgement thresholds are the same for every role; loosening them would just excuse overwork. The density thresholds are rules of thumb, and feedback after real use is welcome.
 
-The default high-risk keywords are Chinese words. If you work in English, add your own in `config.local.json` (see below).
+The default high-risk keywords follow the interface language: English with `"lang": "en"`, Chinese with `"lang": "zh-TW"`. Keywords you write yourself in `config.local.json` are used as they are.
 
 ## Personal settings
 
@@ -143,12 +144,13 @@ Copy `config.example.json` to `config.local.json` and edit it. This file is neve
 
 ```json
 {
-  "role": "工程",
+  "lang": "en",
+  "role": "engineering",
   "high_risk_keywords": {"production": 5, "migration": 4}
 }
 ```
 
-You can set your role, high-risk topic keywords, irreversible commands to watch for, time zone, the boundaries of morning/afternoon/evening, each stage's thresholds, and transcript paths. Every field is explained (in Chinese) inside `config.example.json`. The dashboard works fine without a `config.local.json`.
+You can set the interface language (`en` or `zh-TW`), your role, high-risk topic keywords, irreversible commands to watch for, time zone, the boundaries of morning/afternoon/evening, each stage's thresholds, and transcript paths. Every field is explained inside `config.example.json` (mostly in Chinese). The dashboard works fine without a `config.local.json`.
 
 ## Privacy
 
@@ -191,7 +193,7 @@ The full design rationale, metric definitions and acceptance criteria are in [`r
 ## Limitations
 
 - Codex transcripts don't include AI reply length, tokens or reply timing, so those metrics cover Claude Code only; the page marks this
-- The dashboard is Traditional Chinese only
+- The design spec (`references/spec.md`) is in Chinese only
 - Density and switching thresholds are rules of thumb and need calibrating as more people use it
 
 ## License

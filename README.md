@@ -6,7 +6,7 @@
 
 Decision Pulse 是一個 AI agent skill（通用的 `SKILL.md` 格式），Claude Code、Codex、GitHub Copilot、Gemini CLI、Cursor 都能安裝。它讀你電腦上當天的 Claude Code 與 Codex 對話紀錄，產生一頁儀表板，告訴你今天在哪一段最吃力，並附上有認知科學依據的小提醒。
 
-> An agent skill (standard `SKILL.md` format) for Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor. It reads today's local Claude Code / Codex transcripts and shows, in one page, where your cognitive load piled up — with gentle, research-backed suggestions. Interface is Traditional Chinese only.
+> An agent skill (standard `SKILL.md` format) for Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor. It reads today's local Claude Code / Codex transcripts and shows, in one page, where your cognitive load piled up — with gentle, research-backed suggestions. The interface is available in Traditional Chinese and English.
 
 ---
 
@@ -97,7 +97,7 @@ Windows 的 PowerShell 把 `~` 換成 `$HOME`，例如 `"$HOME\.agents\skills\de
 
 不用背這些詞，只要是在問「自己今天用 AI 的負荷、疲勞、專注或決策品質」，AI 都會啟用。
 
-第一次使用時，AI 會問你一次職能（見下方），之後就不再問。產生的儀表板是一個 HTML 檔：Claude 會直接顯示成頁面，其他工具會告訴你檔案位置，用瀏覽器打開就好。
+第一次使用時，AI 會依你提問的語言設定介面語言，並問你一次職能（見下方），之後就不再問。產生的儀表板是一個 HTML 檔：Claude 會直接顯示成頁面，其他工具會告訴你檔案位置，用瀏覽器打開就好。
 
 也可以不透過 AI，直接跑腳本（路徑換成你的安裝位置）：
 
@@ -109,6 +109,7 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 |---|---|
 | `--date 2026-09-22` | 查指定某一天（預設今天） |
 | `--role 工程` | 用別的職能試跑，不改設定檔 |
+| `--lang en` | 用英文介面試跑，不改設定檔（`zh-TW`／`en`） |
 | `--html <路徑>` | 輸出儀表板頁面 |
 | `--json` | 另外印出完整 JSON |
 | `--save` | 把這天的頁面與數據存進 `history/`（一個日期一份），之後問到同一天直接用，不用重新掃描 |
@@ -120,7 +121,7 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 
 ## 職能
 
-每種工作「正常」的樣子不一樣：工程師可能整天都在跟 AI 一來一往，主管的工作本來就是在不同事情之間切換。所以部分門檻依職能調整。
+每種工作「正常」的樣子不一樣：工程師可能整天都在跟 AI 一來一往，主管的工作本來就是在不同事情之間切換。所以部分門檻依職能調整。職能可以寫中文，也可以寫英文（`engineering`、`hr`、`sales`、`design`、`manager`、`general`）。
 
 | 職能 | ① 決策密度門檻（則／活躍小時） | 預設高風險主題 |
 |---|---|---|
@@ -139,12 +140,13 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 
 ```json
 {
+  "lang": "zh-TW",
   "role": "工程",
   "high_risk_keywords": {"production": 5, "migration": 4}
 }
 ```
 
-可以設定職能、高風險主題關鍵字、不可逆指令清單、時區、早中晚時段邊界、各階段門檻、紀錄路徑。每個欄位的說明都寫在 `config.example.json` 裡。沒有 `config.local.json` 也能產生完整頁面。
+可以設定介面語言（`zh-TW`／`en`）、職能、高風險主題關鍵字、不可逆指令清單、時區、早中晚時段邊界、各階段門檻、紀錄路徑。每個欄位的說明都寫在 `config.example.json` 裡。沒有 `config.local.json` 也能產生完整頁面。
 
 ## 隱私
 
@@ -187,7 +189,7 @@ python ~/.agents/skills/decision-pulse/scripts/scan_today.py --html ~/decision-p
 ## 限制
 
 - Codex 紀錄沒有 AI 回覆字數、token、回覆延遲，這些欄位只算 Claude Code，頁面上會標示
-- 介面只支援繁體中文
+- 介面支援繁體中文與英文；設計文件 `references/spec.md` 只有中文
 - 密度與切換門檻是經驗值，還需要更多人用過後校正
 
 ## 授權

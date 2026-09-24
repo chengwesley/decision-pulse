@@ -1,6 +1,8 @@
 {
   "_說明": "複製成 config.local.json 再修改；沒有 config.local.json 時使用程式內建的預設值（等同本檔）。以底線開頭的欄位會被忽略。",
-  "_role": "你的職能：通用／工程／營運・HR／業務／設計／主管。決定 ① 決策密度門檻、預設高風險主題、額外的不可逆指令與建議舉例；休息、切換、判斷品質的門檻不隨職能改變。下面寫了的欄位會蓋過職能預設",
+  "_lang": "介面語言：zh-TW（繁體中文，預設）或 en（English）。決定儀表板、建議、小時鐘的文字，以及職能預設的高風險關鍵字用哪種語言 / Interface language: zh-TW (default) or en. Also picks the language of the role's default high-risk keywords",
+  "lang": "zh-TW",
+  "_role": "你的職能：通用／工程／營運・HR／業務／設計／主管（也可以寫英文 general／engineering／hr／sales／design／manager）。決定 ① 決策密度門檻、預設高風險主題、額外的不可逆指令與建議舉例；休息、切換、判斷品質的門檻不隨職能改變。下面寫了的欄位會蓋過職能預設",
   "role": null,
   "_high_risk_keywords": "你自己工作裡的高風險主題與權重，命中就算「高度重要訊息」。空白＝只用通用規則。例：HR 可填 {\"調薪\": 5, \"離職\": 5}；業務可填 {\"報價\": 4, \"折扣\": 3}；工程可填 {\"production\": 5}",
   "high_risk_keywords": {},

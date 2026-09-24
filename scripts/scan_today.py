@@ -25,6 +25,7 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 
 sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")  # config errors (sys.exit) print Chinese too
 
 SKILL_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_LOCAL = os.path.join(SKILL_DIR, "config.local.json")
@@ -35,6 +36,7 @@ PUBLISHED = os.path.join(HISTORY_DIR, "published.json")
 # Defaults every user gets. Personal values (e.g. high-risk topics) are empty on
 # purpose: the tool must produce a complete page for someone who configures nothing.
 DEFAULTS = {
+    "lang": "zh-TW",   # interface language: "zh-TW" or "en"
     "timezone": None,  # None = this computer's timezone; or "+08:00"
     "high_risk_keywords": {},
     "irreversible_patterns": ["git push", "rm -rf", "drop table", "--force"],
@@ -66,43 +68,67 @@ DEFAULTS = {
 # and the example in the advice. Recovery (10 min / 6 h), switching and judgement
 # thresholds never move with the role — a job title doesn't change what tires a
 # brain, and loosening them would make the tool explain overwork away.
+# Keywords and the advice example follow the interface language: someone who
+# works in English writes English prompts.
 ROLE_PRESETS = {
     "通用": {},
     "工程": {
         "density": [40, 70],
-        "high_risk_keywords": ["production", "上線", "deploy", "migration", "資料庫", "權限", "secret"],
+        "high_risk_keywords": {
+            "zh-TW": ["production", "上線", "deploy", "migration", "資料庫", "權限", "secret"],
+            "en": ["production", "go-live", "deploy", "migration", "database", "permission", "secret"]},
         "irreversible_extra": ["git reset --hard", "kubectl delete", "terraform apply", "migrate"],
     },
     "營運・HR": {
-        "high_risk_keywords": ["調薪", "薪資", "離職", "資遣", "錄取", "申訴", "合約", "簽署", "撤權", "個資"],
-        "density_example": "這類詢問先照範本回，特殊的再來問我",
+        "high_risk_keywords": {
+            "zh-TW": ["調薪", "薪資", "離職", "資遣", "錄取", "申訴", "合約", "簽署", "撤權", "個資"],
+            "en": ["pay raise", "salary", "resignation", "layoff", "offer letter", "grievance", "contract",
+                   "signing", "revoke access", "personal data"]},
+        "density_example": {"zh-TW": "這類詢問先照範本回，特殊的再來問我",
+                            "en": "answer these requests from the template, and only check with me on the unusual ones"},
         "switching_is_the_job": True,
     },
     "業務": {
         "density": [20, 40],
-        "high_risk_keywords": ["報價", "折扣", "合約", "簽約", "退款", "付款條件"],
-        "density_example": "報價照價目表出，要給折扣再問我",
+        "high_risk_keywords": {
+            "zh-TW": ["報價", "折扣", "合約", "簽約", "退款", "付款條件"],
+            "en": ["quote", "discount", "contract", "sign the deal", "refund", "payment terms"]},
+        "density_example": {"zh-TW": "報價照價目表出，要給折扣再問我",
+                            "en": "quote from the price list, and ask me only before offering a discount"},
     },
     "設計": {
         "density": [20, 40],
-        "high_risk_keywords": ["上線", "對外發布", "品牌"],
-        "density_example": "沿用品牌規範的色票和字級，不用每次確認",
+        "high_risk_keywords": {"zh-TW": ["上線", "對外發布", "品牌"],
+                               "en": ["go-live", "public release", "brand"]},
+        "density_example": {"zh-TW": "沿用品牌規範的色票和字級，不用每次確認",
+                            "en": "stick to the brand palette and type scale, no need to confirm each time"},
     },
     "主管": {
         "density": [15, 30],
-        "high_risk_keywords": ["預算", "人事", "績效", "考核", "組織調整", "合約"],
-        "density_example": "例行報表照上週的格式，不用每次問我",
+        "high_risk_keywords": {
+            "zh-TW": ["預算", "人事", "績效", "考核", "組織調整", "合約"],
+            "en": ["budget", "headcount", "performance", "appraisal", "reorg", "contract"]},
+        "density_example": {"zh-TW": "例行報表照上週的格式，不用每次問我",
+                            "en": "keep the routine reports in last week's format, no need to ask me each time"},
         "switching_is_the_job": True,
     },
 }
-ROLE_ALIASES = {"其他": "通用", "營運": "營運・HR", "HR": "營運・HR", "營運/HR": "營運・HR"}
+DEFAULT_EXAMPLE = {"zh-TW": "測試沒過就先修，不用問我", "en": "if the tests fail, just fix them, no need to ask me"}
+ROLE_ALIASES = {"其他": "通用", "營運": "營運・HR", "HR": "營運・HR", "營運/HR": "營運・HR",
+                "general": "通用", "other": "通用", "engineering": "工程", "engineer": "工程",
+                "ops": "營運・HR", "operations": "營運・HR", "hr": "營運・HR", "ops-hr": "營運・HR",
+                "sales": "業務", "design": "設計", "designer": "設計", "manager": "主管", "lead": "主管"}
+ROLE_NAMES_EN = {"通用": "General", "工程": "Engineering", "營運・HR": "Operations / HR",
+                 "業務": "Sales", "設計": "Design", "主管": "Manager"}
+LANG_ALIASES = {"zh-TW": "zh-TW", "zh": "zh-TW", "zh-tw": "zh-TW", "tw": "zh-TW", "en": "en", "en-US": "en",
+                "en-us": "en", "en-GB": "en", "english": "en"}
 
 
-def cli_role():
-    """--role is read here, before argparse, because the whole config (and the
-    module-level constants derived from it) is built at import time."""
-    if "--role" in sys.argv:
-        i = sys.argv.index("--role")
+def cli_opt(name):
+    """--role / --lang are read here, before argparse, because the whole config
+    (and the module-level constants derived from it) is built at import time."""
+    if name in sys.argv:
+        i = sys.argv.index(name)
         if i + 1 < len(sys.argv):
             return sys.argv[i + 1]
     return None
@@ -111,32 +137,42 @@ def cli_role():
 def load_config():
     """Program defaults → role preset → the user's own config.local.json."""
     cfg = json.loads(json.dumps(DEFAULTS))
-    cfg.update({"role": None, "density_example": "測試沒過就先修，不用問我", "switching_is_the_job": False})
     try:
         with open(CONFIG_LOCAL, encoding="utf-8") as f:
             local = json.load(f)
     except FileNotFoundError:
         local = {}
     except json.JSONDecodeError as exc:
-        sys.exit(f"config.local.json 格式錯誤：{exc}")
+        sys.exit(f"config.local.json 格式錯誤 / invalid JSON: {exc}")
 
-    role = cli_role() or local.get("role")
-    role = ROLE_ALIASES.get(role, role)
+    raw_lang = cli_opt("--lang") or local.get("lang") or cfg["lang"]
+    lang = LANG_ALIASES.get(raw_lang, LANG_ALIASES.get(str(raw_lang).lower()))
+    if lang is None:
+        sys.exit(f"lang 應為 zh-TW 或 en / lang must be zh-TW or en, got: {raw_lang}")
+    cfg["lang"] = lang
+    en = lang == "en"
+    cfg.update({"role": None, "density_example": DEFAULT_EXAMPLE[lang], "switching_is_the_job": False})
+
+    role = cli_opt("--role") or local.get("role")
+    role = ROLE_ALIASES.get(role, ROLE_ALIASES.get(str(role).lower(), role)) if role else role
     if role is not None and role not in ROLE_PRESETS:
-        sys.exit(f"role 應為 {'、'.join(ROLE_PRESETS)} 其中之一，收到：{role}")
+        names = ", ".join(sorted({k for k, v in ROLE_ALIASES.items() if k.isascii()})) if en else "、".join(ROLE_PRESETS)
+        sys.exit(f"role must be one of: {names}; got: {role}" if en
+                 else f"role 應為 {names} 其中之一，收到：{role}")
     preset = ROLE_PRESETS.get(role or "通用", {})
     cfg["role"] = role
     if "density" in preset:
         cfg["risk_levels"]["density"] = preset["density"]
     if "high_risk_keywords" in preset:
-        cfg["high_risk_keywords"] = {k: 3 for k in preset["high_risk_keywords"]}
+        cfg["high_risk_keywords"] = {k: 3 for k in preset["high_risk_keywords"][lang]}
     cfg["irreversible_patterns"] = cfg["irreversible_patterns"] + preset.get("irreversible_extra", [])
-    for k in ("density_example", "switching_is_the_job"):
-        if k in preset:
-            cfg[k] = preset[k]
+    if "density_example" in preset:
+        cfg["density_example"] = preset["density_example"][lang]
+    if "switching_is_the_job" in preset:
+        cfg["switching_is_the_job"] = preset["switching_is_the_job"]
 
     for k, v in local.items():
-        if k.startswith("_") or k == "role":
+        if k.startswith("_") or k in ("role", "lang"):
             continue
         # risk_levels merges per stage, so overriding one stage keeps the others.
         # high_risk_keywords / irreversible_patterns are replaced whole: a user's list is their list.
@@ -152,12 +188,14 @@ def resolve_tz(value):
         return datetime.now().astimezone().tzinfo
     m = re.fullmatch(r"([+-])(\d{1,2}):(\d{2})", value.strip())
     if not m:
-        sys.exit(f"timezone 設定格式應為 +08:00 這種形式，收到：{value}")
+        sys.exit(f"timezone 設定格式應為 +08:00 這種形式 / timezone must look like +08:00, got: {value}")
     sign = 1 if m.group(1) == "+" else -1
     return timezone(sign * timedelta(hours=int(m.group(2)), minutes=int(m.group(3))))
 
 
 CFG = load_config()
+LANG = CFG["lang"]
+EN = LANG == "en"
 TZ = resolve_tz(CFG["timezone"])
 CLAUDE_PROJECTS = os.path.expanduser(CFG["claude_projects"])
 CODEX_SESSIONS = os.path.expanduser(CFG["codex_sessions"])
@@ -174,8 +212,13 @@ TABLE_MIN_BLOCK_MIN = 10
 TABLE_MIN_BLOCK_MSGS = 3
 JUDGEMENT_MIN_LONG_REPLIES = 10  # fewer long outputs than this and a ratio means nothing
 
-STAGES = [("density", "① 決策密度"), ("recovery", "② 恢復窗口"),
-          ("fatigue", "③ 認知疲勞跡象"), ("judgement", "④ 判斷品質")]
+STAGES = ([("density", "① Decision density"), ("recovery", "② Recovery window"),
+           ("fatigue", "③ Signs of fatigue"), ("judgement", "④ Judgement quality")] if EN else
+          [("density", "① 決策密度"), ("recovery", "② 恢復窗口"),
+           ("fatigue", "③ 認知疲勞跡象"), ("judgement", "④ 判斷品質")])
+# Levels, reasons, notes and verification signals stay as these Chinese codes in
+# the JSON whatever the interface language, so pulse-clock and saved history/
+# files keep working; they're translated only when shown.
 LEVEL_ORDER = {"低": 0, "中": 1, "高": 2}
 
 # Fixed text triggered by rules — never generated on the fly, so days stay
@@ -186,30 +229,54 @@ LEVEL_ORDER = {"低": 0, "中": 1, "高": 2}
 SUGGESTIONS = [
     {"stage": "density", "when": {"高"},
      "text": "今天很多小事都跑來等你拍板。可以先幫常見情況定好規則，像「{example}」，AI 照著走，你的腦袋就能留給真正要想的事。",
-     "why": "事先想好「如果…就…」，當下就不必再判斷一次", "cite": "執行意圖，Gollwitzer & Sheeran 2006 後設分析（信心高）"},
+     "why": "事先想好「如果…就…」，當下就不必再判斷一次", "cite": "執行意圖，Gollwitzer & Sheeran 2006 後設分析（信心高）",
+     "en": {"text": "A lot of small things were waiting on your call today. It might help to set a few rules ahead of time for the usual cases, like “{example}”, so the AI can follow them and your head stays free for what really needs thought.",
+            "why": "Deciding “if this happens, I’ll do that” in advance means you don’t have to decide again in the moment",
+            "cite": "Implementation intentions, Gollwitzer & Sheeran 2006 meta-analysis (confidence: high)"}},
     {"stage": "density", "when": {"中", "高"},
      "text": "一開始把要求講清楚：範圍、限制、做到哪裡算完成。AI 中途來問你的次數會少很多。",
-     "why": "目標越具體，表現越好", "cite": "目標設定理論，Locke & Latham 2002（信心中高）"},
+     "why": "目標越具體，表現越好", "cite": "目標設定理論，Locke & Latham 2002（信心中高）",
+     "en": {"text": "When you start a task, try spelling out the scope, the limits, and what “done” looks like. The AI will likely come back to ask you far less often.",
+            "why": "The more specific the goal, the better the performance",
+            "cite": "Goal-setting theory, Locke & Latham 2002 (confidence: medium-high)"}},
     {"stage": "recovery", "when": {"中", "高"},
      "text": "已經連續好一陣子沒停了。下一件事開始前，起來走走、看看窗外，離開螢幕十分鐘再回來。",
      "why": "十分鐘以上的休息才有恢復效果；看遠處、看綠色有助於恢復專注力",
-     "cite": "Albulescu et al. 2022（信心中高）；注意力恢復理論，Kaplan 1995（信心中）"},
+     "cite": "Albulescu et al. 2022（信心中高）；注意力恢復理論，Kaplan 1995（信心中）",
+     "en": {"text": "You’ve been going for quite a while without a pause. Before the next thing, maybe get up, walk around, look out the window, and give yourself ten minutes away from the screen.",
+            "why": "Breaks of ten minutes or more are what actually help you recover; looking into the distance or at something green helps your attention come back",
+            "cite": "Albulescu et al. 2022 (confidence: medium-high); attention restoration theory, Kaplan 1995 (confidence: medium)"}},
     {"stage": "recovery", "when": {"高"},
      "text": "明天試著幫自己留一兩段不被打擾的時間，給需要專心想的事。",
-     "why": "常被打斷的人會加快速度補回時間，代價是壓力和挫折感上升", "cite": "Mark, Gudith & Klocke 2008（信心中高）"},
+     "why": "常被打斷的人會加快速度補回時間，代價是壓力和挫折感上升", "cite": "Mark, Gudith & Klocke 2008（信心中高）",
+     "en": {"text": "Tomorrow, see if you can keep one or two stretches free of interruptions for the work that needs real focus.",
+            "why": "People who get interrupted often work faster to catch up, and pay for it with more stress and frustration",
+            "cite": "Mark, Gudith & Klocke 2008 (confidence: medium-high)"}},
     {"stage": "fatigue", "when": {"中", "高"},
      "text": "要切去別的對話之前，花半分鐘寫下「做到哪、下一步是什麼」。回來接得上，離開時心裡也比較放得下。",
-     "why": "切換前寫下接續計畫，注意力比較不會卡在上一件事", "cite": "接續計畫，Leroy & Glomb 2018（信心中高）"},
+     "why": "切換前寫下接續計畫，注意力比較不會卡在上一件事", "cite": "接續計畫，Leroy & Glomb 2018（信心中高）",
+     "en": {"text": "Before you jump to another conversation, take half a minute to jot down where you are and what comes next. It’s easier to pick up again, and easier to let go when you leave.",
+            "why": "Writing a plan for picking back up keeps your attention from getting stuck on the last task",
+            "cite": "Ready-to-resume plans, Leroy & Glomb 2018 (confidence: medium-high)"}},
     {"stage": "fatigue", "when": {"高"}, "skip_if_switching_is_the_job": True,
      "text": "同時開著的對話有點多，先收掉幾個，留兩個就好。",
      "why": "大腦同時只能抓住大約四件事，每個開著的對話都在佔位子",
-     "cite": "工作記憶容量，Cowan 2001（信心中高）；「兩個」是經驗值"},
+     "cite": "工作記憶容量，Cowan 2001（信心中高）；「兩個」是經驗值",
+     "en": {"text": "There are quite a few conversations open at once. Maybe close a few and keep just two going.",
+            "why": "Your brain can hold only about four things at a time, and every open conversation takes up a slot",
+            "cite": "Working memory capacity, Cowan 2001 (confidence: medium-high); “two” is a rule of thumb"}},
     {"stage": "judgement", "when": {"中", "高"},
      "text": "AI 寫了一大段的時候，給自己一點時間讀完再回。可以問自己：「要跟同事解釋的話，我講得出為什麼同意嗎？」",
-     "why": "知道要為決定負責時，比較不會照單全收機器的建議", "cite": "問責效應，Skitka, Mosier & Burdick 2000（信心中）"},
+     "why": "知道要為決定負責時，比較不會照單全收機器的建議", "cite": "問責效應，Skitka, Mosier & Burdick 2000（信心中）",
+     "en": {"text": "When the AI writes a long answer, give yourself a moment to read it before you reply. One question that helps: “If I had to explain this to a colleague, could I say why I agreed?”",
+            "why": "When people know they’ll have to justify a decision, they’re less likely to take a machine’s suggestion as is",
+            "cite": "Accountability effect, Skitka, Mosier & Burdick 2000 (confidence: medium)"}},
     {"stage": "judgement", "when": {"topic_unverified"},
      "text": "碰到比較重大的決定，請 AI 反過來列出「這樣做可能哪裡不對」，看完再決定。",
-     "why": "刻意想想反面，是少數被重複驗證有效的去偏誤方法", "cite": "考慮反面，Lord, Lepper & Preston 1984（信心中高）"},
+     "why": "刻意想想反面，是少數被重複驗證有效的去偏誤方法", "cite": "考慮反面，Lord, Lepper & Preston 1984（信心中高）",
+     "en": {"text": "For the bigger decisions, try asking the AI to list what could go wrong with the plan, and read that before you decide.",
+            "why": "Deliberately considering the opposite is one of the few debiasing methods that has held up again and again",
+            "cite": "Consider-the-opposite, Lord, Lepper & Preston 1984 (confidence: medium-high)"}},
 ]
 
 EXPLORE_TOOLS = {"Read", "Grep", "Glob", "WebFetch", "WebSearch", "ToolSearch"}
@@ -290,7 +357,7 @@ def project_label(cwd):
         return "unknown"
     p = cwd.replace("\\", "/").rstrip("/")
     if p.lower() == HOME:
-        return "~（家目錄）"
+        return "~ (home)" if EN else "~（家目錄）"
     parts = p.split("/")
     base = parts[-1]
     if base.lower() in {d.lower() for d in CFG["generic_dirnames"]} and len(parts) >= 2:
@@ -847,8 +914,9 @@ def build(date_str):
             if sug.get("skip_if_switching_is_the_job") and CFG["switching_is_the_job"]:
                 hit = False
             if hit:
-                suggestions.append({"stage": sug["stage"], "why": sug["why"], "cite": sug["cite"],
-                                    "text": sug["text"].format(example=CFG["density_example"]),
+                words = sug["en"] if EN else sug
+                suggestions.append({"stage": sug["stage"], "why": words["why"], "cite": words["cite"],
+                                    "text": words["text"].format(example=CFG["density_example"]),
                                     "level": lv if lv in sug["when"] else "追加"})
 
     # --- right now (only while the day is still going)
@@ -881,7 +949,7 @@ def build(date_str):
         "date": date_str,
         "generated_at": now.strftime("%Y-%m-%d %H:%M"),
         "is_today": now.date().isoformat() == date_str,
-        "config": {"role": CFG["role"], "personal_topics": len(CFG["high_risk_keywords"]),
+        "config": {"lang": CFG["lang"], "role": CFG["role"], "personal_topics": len(CFG["high_risk_keywords"]),
                    "fatigue_block_min": CFG["fatigue_block_min"],
                    "long_output_chars": CFG["long_output_chars"], "fast_accept_sec": CFG["fast_accept_sec"],
                    "time_segments": CFG["time_segments"]},
@@ -946,7 +1014,223 @@ def build(date_str):
 
 # ---------------------------------------------------------------- dashboard
 
-ACTION_LABEL = {"ask": "AI 停下來要你決定", "stopped": "你中止 AI 的動作", "irreversible": "不可逆指令"}
+# Every word the page shows, in both interface languages. The JSON keeps the
+# Chinese codes (levels, reasons, notes, signals); these tables translate them.
+UI = {
+    "zh-TW": {
+        "list_sep": "、", "sep": "；", "weekdays": "一二三四五六日",
+        "both": "兩者", "cc_only": "僅 Claude Code",
+        "levels": {"低": "低", "中": "中", "高": "高", "追加": "追加"},
+        "notes": {}, "reasons": {}, "signals": {}, "segments": {},
+        "actions": {"ask": "AI 停下來要你決定", "stopped": "你中止 AI 的動作", "irreversible": "不可逆指令"},
+        "cant_tell": "無法判斷",
+        # summary
+        "no_usage": "{date} 沒有使用 AI 的紀錄。",
+        "peak": "對話最密集在 {h}:00–{h2}:00（{n} 則）",
+        "stage_names": {"density": "決策密度", "recovery": "恢復窗口", "fatigue": "疲勞跡象", "judgement": "判斷品質"},
+        "graded_item": "{name}{level}",
+        "day_today": "今天", "day_past": "這天",
+        "summary": "{day} {conv} 段對話、實際對話 {active} 分鐘；{peak}；最長一段沒休息 {longest} 分鐘。四個階段：{graded}。",
+        # chain
+        "units": {"density": "則／活躍小時", "recovery": "分鐘沒有 10 分鐘休息", "fatigue": "次切換／活躍小時",
+                  "judgement": "長內容秒回（{a}／{b}）"},
+        "basis_mixed": "門檻：研究＋經驗值", "basis_rule": "門檻：經驗值",
+        "flow_label": "四階段風險分級",
+        "legend": "直線＝今天的數值落點；四個階段各自分級，不加總",
+        # care
+        "care_h": "今天想提醒你的幾件事",
+        "care_sub": "辛苦了。下面是從今天的節奏裡看到、可以試試看的小調整。",
+        "care_ok": "今天的節奏還不錯，繼續保持。",
+        # now
+        "now_block": "這一段已連續 <b>{m} 分鐘</b>",
+        "now_switches": "最近 {w} 分鐘切換 <b>{n}</b> 次",
+        "now_last_break": "上次 {i} 分鐘以上的休息：{s}–{e}",
+        "now_no_break": "今天還沒有 10 分鐘以上的休息",
+        "now_over": "距離上次 {i} 分鐘以上的休息已經 {m} 分鐘。",
+        "now_idle": "已經 {m} 分鐘沒有對話",
+        "now_at": "此刻 {t}",
+        # stage 1
+        "spike_off": "（當天回覆少於 20 次，此規則未啟用）",
+        "fatigue_note": "（所在活動段已連續 ≥ {m} 分鐘）",
+        "no_keywords": "（未設定關鍵字）",
+        "late_tag": "（深夜）", "late_code_name": "深夜",
+        "irr_detail": "（{items}）",
+        "spike_note": "資訊量爆量＝你發這則之前 AI 累積寫的字超過當天第 90 百分位（今天是 {n} 字）。",
+        "s1_h": "決策密度", "s1_q": "AI 讓決策密度暴增——今天有多少事經過你的判斷？",
+        "st_conv": ("對話段數", "段"), "st_msgs": ("你發的訊息", "則"), "st_typed": ("你打的字", "字"),
+        "st_ai_chars": ("AI 回的字", "字"), "st_tokens": ("資訊量 token", ""), "st_thinking": ("思考量 thinking token", ""),
+        "events_h": "決策事件", "ev_asked": "AI 停下來要你決定", "ev_changed": "你改變主意（排了指令又取消）",
+        "ev_stopped": "你中止 AI 的動作",
+        "hi_vs_h": "一般 vs 高度重要", "hi_msgs": "高度重要訊息（佔 {p}）", "normal_msgs": "一般訊息",
+        "hi_actions": "高度重要動作", "multi_rule": "一則訊息可能同時符合多條規則。",
+        "seg_h": "早中晚", "seg_th": ("時段", "時間", "訊息", "你打的字"),
+        "hourly_h": "每小時訊息量", "hourly_note": "深色＝最密集的一小時。",
+        # stage 2
+        "brk_lbl": "{m} 分", "brk_title": "{s}→{e}，{m} 分鐘沒有輸入", "blk_title": "{s}–{e}，{m} 分鐘",
+        "strip_legend": ("實際在對話", "真的離開", "沒輸入但 AI 還在跑"),
+        "s2_h": "恢復窗口", "s2_q": "恢復窗口消失——今天有沒有真的停下來？",
+        "st_active": ("實際對話時間", "分"), "st_longest": ("最長一段沒休息", "分"),
+        "st_away": ("真正離開", "次"), "st_longest_break": ("最長一次休息", "分"),
+        "s2_ref": "「真正離開」＝連續 {i} 分鐘以上沒有你的輸入、AI 也沒在跑。{i} 分鐘對齊 Albulescu et al. (2022)：不到 10 分鐘的休息不足以讓高認知需求的工作恢復（信心中高）。持續高強度認知控制約 {h} 小時後前額葉出現代價（Blain et al. 2016，借用的實驗室門檻，信心中）——今天{over}超過。",
+        "over_yes": "已", "over_no": "未",
+        # stage 3
+        "lx_msgs": "{n} 則",
+        "s3_h": "認知疲勞的跡象", "s3_q": "注意力被切碎、指令變短、深夜還在用？",
+        "st_switches": ("切換", "次"), "st_returns": ("其中跳回先前丟下的對話", "次"),
+        "st_sw_density": ("切換密度", "次／活躍小時"), "st_concurrent": ("同時開著", "段 @ {t}"),
+        "storm_h": "最密集的 {w} 分鐘", "storm": "{s}–{e}：{n} 次切換，其中 {r} 次跳回", "storm_none": "今天沒有切換密集的時窗",
+        "focus_run": "最長不切換連續段", "focus_run_v": "{n} 則", "late_msgs": "深夜訊息",
+        "len_h": "指令長度 · 每段活動的中位數字數",
+        "len_note": "過載時指令傾向變短、變含糊。全天中位數 {n} 字。",
+        "s3_ref": "「跳回」＝切到今天稍早用過、中途離開的對話，最接近注意力殘留研究說的未閉合切換（Leroy 2009；Mark et al. 2008，信心中高）。切換以對話為單位，同一個視窗裡換資料夾不算。",
+        # stage 4
+        "no_signal": "無",
+        "s4_h": "判斷品質", "s4_q": "判斷品質下滑——AI 講完你有沒有真的看？",
+        "st_fast": ("長內容後秒回", "%"), "st_long": ("長內容回覆次數", "次"),
+        "st_reply": ("回覆延遲中位數", "秒"), "st_retry": ("錯誤後重試", "／{n} 次錯誤"),
+        "verify_h": "高度重要訊息所在對話的驗證行為", "verify_th": ("專案", "高度重要訊息", "驗證訊號"),
+        "verify_none": "沒有 Claude Code 的高度重要訊息。",
+        "work_h": "工作訊號（信心低中）", "explore": "探索／產出比（讀、查 vs 寫、改）", "agents": "派 subagent",
+        "work_note": "多讀少寫可能是謹慎，也可能只是任務本身要查很多。",
+        "s4_ref": "「長內容後秒回」＝AI 自你上次發言後寫了 {c} 字以上，你 {s} 秒內就回覆（自動化自滿，Parasuraman &amp; Manzey 2010，信心中）。這一階段只看做判斷時的條件，不判斷決定對不對——對話紀錄沒有結果資料。",
+        # block table
+        "table_h": "每段活動的條件並排",
+        "table_th": ("時間", "時段", "長度（分）", "之前休息（分）", "訊息", "切換密度", "指令長度", "長內容秒回", "高度重要", "工具"),
+        "table_note": "只列長度 ≥ {m} 分鐘且 ≥ {n} 則訊息的活動段。「長內容秒回」只有 Claude Code 有資料，沒有就顯示「—」。<b>單日只有幾段、時段又跟做什麼工作疊在一起，這張表只把條件並排給你看，無法回答「越晚是否越差」。</b>",
+        # details
+        "sessions_h": "對話明細（{n} 段）",
+        "sessions_th": ("時間", "工具", "專案", "你發話", "你打的字", "AI 回的字", "工具呼叫"),
+        "method_h": "方法與限制",
+        "method": (
+            "資料只來自這台電腦上的 Claude Code 與 Codex 對話紀錄。同一段對話被續寫、分叉或換資料夾時會被複製成新檔案，已合併去重（合併 {merged} 個檔案、去掉 {dups} 筆重複事件）。Codex 的背景自動審查與子代理（{bg} 條）不算你的使用。",
+            "只算你真正打的字：系統自動插入的內容（例如 system-reminder、排程任務、slash command 輸出）會先剝除。",
+            "Codex 的紀錄沒有 AI 回覆字數、token 與回覆延遲，標「僅 Claude Code」的指標只反映 Claude Code 的使用。",
+            "「認知負荷」刻意不做成單一分數——恢復窗口、疲勞跡象、判斷品質是不同的東西，加起來會製造假精確。",
+            "門檻：{i} 分鐘有效休息（Albulescu et al. 2022）、{h} 小時持續控制（Blain et al. 2016，借用）有文獻依據；疲勞情境 {f} 分鐘、長內容 {c} 字、秒回 {s} 秒是工程慣例，可在 config.local.json 調整。",
+            "刻意不做：跨日比較、單一總分、判斷決策對不對、情緒推論、AI 生成的建議句、主動推播。",
+        ),
+        # header / footer
+        "eyebrow": "Decision Pulse · {date}（週{wd}）· 產生於 {gen} · {role}",
+        "role": "職能：{r}", "no_role": "尚未設定職能，使用通用預設",
+        "h1_today": "今天用 AI 的認知負荷", "h1_past": "{m}/{d} 用 AI 的認知負荷",
+        "footer": "decision-pulse · 只讀這台電腦上的 Claude Code 與 Codex 紀錄",
+        "past_swaps": (("今天", "這天"),),
+    },
+    "en": {
+        "list_sep": ", ", "sep": "; ", "weekdays": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+        "both": "both", "cc_only": "Claude Code only",
+        "levels": {"低": "low", "中": "medium", "高": "high", "追加": "also"},
+        "notes": {"樣本不足": "not enough data", "無法判斷": "can't tell", "有深夜使用": "late-night use",
+                  "高風險主題沒有驗證": "high-stakes topic not double-checked",
+                  "超過 {h} 小時": "over {h} hours"},
+        "reasons": {"資訊量爆量": "Information spike", "深夜": "Late night", "疲勞情境": "While already tired",
+                    "高風險主題": "High-stakes topic"},
+        "signals": {"派 subagent": "sent a subagent", "review 類 skill": "review skill",
+                    "查外部來源": "checked outside sources"},
+        "segments": {"早": "Morning", "中": "Afternoon", "晚": "Evening", "深夜": "Late night"},
+        "actions": {"ask": "The AI stopped to ask you", "stopped": "You stopped the AI",
+                    "irreversible": "Irreversible commands"},
+        "cant_tell": "can't tell",
+        "no_usage": "No AI usage recorded on {date}.",
+        "peak": "busiest hour {h}:00–{h2}:00 ({n} messages)",
+        "stage_names": {"density": "decision density", "recovery": "recovery window", "fatigue": "fatigue signs",
+                        "judgement": "judgement quality"},
+        "graded_item": "{name} {level}",
+        "day_today": "Today", "day_past": "That day",
+        "summary": "{day}: {conv} conversations, {active} min in conversation; {peak}; longest stretch without a break {longest} min. Four stages: {graded}.",
+        "units": {"density": "messages / active hour", "recovery": "min without a 10-min break",
+                  "fatigue": "switches / active hour", "judgement": "quick replies to long outputs ({a}/{b})"},
+        "basis_mixed": "Threshold: research + rule of thumb", "basis_rule": "Threshold: rule of thumb",
+        "flow_label": "Four-stage risk levels",
+        "legend": "Line = where today's value falls; each stage is graded on its own, never summed",
+        "care_h": "A few things worth noticing today",
+        "care_sub": "You've put in a lot today. Here are a few small adjustments you could try, based on how today went.",
+        "care_ok": "Today's pace looks good. Keep it up.",
+        "now_block": "Current stretch: <b>{m} min</b>",
+        "now_switches": "<b>{n}</b> switches in the last {w} min",
+        "now_last_break": "last break of {i}+ min: {s}–{e}",
+        "now_no_break": "no break of 10+ min yet today",
+        "now_over": "It has been {m} min since your last break of {i}+ min.",
+        "now_idle": "No conversation for {m} min",
+        "now_at": "Now {t}",
+        "spike_off": " (fewer than 20 replies today, rule off)",
+        "fatigue_note": " (block already ≥ {m} min)",
+        "no_keywords": " (no keywords set)",
+        "late_tag": " (late night)", "late_code_name": "深夜",
+        "irr_detail": " ({items})",
+        "spike_note": "Information spike = before you sent it, the AI had written more than the day's 90th percentile (today: {n} characters). ",
+        "s1_h": "Decision density", "s1_q": "AI multiplies the decisions you make. How many went through you today?",
+        "st_conv": ("Conversations", ""), "st_msgs": ("Messages you sent", ""), "st_typed": ("Characters you typed", ""),
+        "st_ai_chars": ("Characters the AI wrote", ""), "st_tokens": ("Tokens", ""),
+        "st_thinking": ("Thinking tokens", ""),
+        "events_h": "Decision events", "ev_asked": "The AI stopped to ask you",
+        "ev_changed": "You changed your mind (queued, then cancelled)", "ev_stopped": "You stopped the AI",
+        "hi_vs_h": "Routine vs high-importance", "hi_msgs": "High-importance messages ({p})",
+        "normal_msgs": "Routine messages", "hi_actions": "High-importance actions",
+        "multi_rule": "One message can match more than one rule.",
+        "seg_h": "Time of day", "seg_th": ("Part of day", "Hours", "Messages", "Characters typed"),
+        "hourly_h": "Messages per hour", "hourly_note": "Dark = the busiest hour.",
+        "brk_lbl": "{m} min", "brk_title": "{s}→{e}, {m} min without input", "blk_title": "{s}–{e}, {m} min",
+        "strip_legend": ("In conversation", "Really away", "No input, AI still working"),
+        "s2_h": "Recovery window", "s2_q": "Recovery windows disappear. Did you actually stop today?",
+        "st_active": ("Time in conversation", "min"), "st_longest": ("Longest stretch without a break", "min"),
+        "st_away": ("Times really away", ""), "st_longest_break": ("Longest break", "min"),
+        "s2_ref": "“Really away” = {i}+ minutes with no input from you and no AI activity. {i} minutes follows Albulescu et al. (2022): breaks shorter than 10 minutes don't restore you after demanding work (confidence: medium-high). After about {h} hours of sustained, demanding cognitive control the prefrontal cortex shows a cost (Blain et al. 2016, a borrowed lab threshold, confidence: medium). Today this was {over}.",
+        "over_yes": "exceeded", "over_no": "not exceeded",
+        "lx_msgs": "{n} msgs",
+        "s3_h": "Signs of fatigue", "s3_q": "Is attention breaking into pieces, are prompts getting shorter, still going late at night?",
+        "st_switches": ("Switches", ""), "st_returns": ("Returns to a conversation left earlier", ""),
+        "st_sw_density": ("Switch density", "/ active hour"), "st_concurrent": ("Open at once", "@ {t}"),
+        "storm_h": "Busiest {w} minutes", "storm": "{s}–{e}: {n} switches, {r} of them returns",
+        "storm_none": "No dense switching window today",
+        "focus_run": "Longest run without switching", "focus_run_v": "{n} msgs", "late_msgs": "Late-night messages",
+        "len_h": "Prompt length · median characters per block",
+        "len_note": "Under overload, prompts tend to get shorter and vaguer. Median for the day: {n} characters.",
+        "s3_ref": "“Return” = switching back to a conversation you used and left earlier today, the closest match to the unfinished switches studied in attention-residue research (Leroy 2009; Mark et al. 2008, confidence: medium-high). Switching is counted between conversations; changing folders inside one window doesn't count.",
+        "no_signal": "none",
+        "s4_h": "Judgement quality", "s4_q": "Judgement slips. Did you really read what the AI said?",
+        "st_fast": ("Quick replies to long outputs", "%"), "st_long": ("Long outputs you replied to", ""),
+        "st_reply": ("Median reply time", "s"), "st_retry": ("Retries after an error", "/ {n} errors"),
+        "verify_h": "Checking behaviour in conversations with high-importance messages",
+        "verify_th": ("Project", "High-importance", "Checks"),
+        "verify_none": "No high-importance messages in Claude Code.",
+        "work_h": "Work signals (confidence: low-medium)",
+        "explore": "Explore / produce ratio (reading, searching vs writing, editing)", "agents": "Subagents sent",
+        "work_note": "Reading more than writing can mean care, or just a task that needs a lot of looking up.",
+        "s4_ref": "“Quick reply to a long output” = since your last message the AI wrote {c}+ characters and you replied within {s} seconds (automation complacency, Parasuraman &amp; Manzey 2010, confidence: medium). This stage looks only at the conditions you decided under, not whether the decision was right. Transcripts don't contain outcomes.",
+        "table_h": "Activity blocks side by side",
+        "table_th": ("Time", "Part of day", "Length (min)", "Break before (min)", "Messages", "Switch density",
+                     "Prompt length", "Quick replies to long outputs", "High-importance", "Tools"),
+        "table_note": "Only blocks of at least {m} minutes and {n} messages are listed. “Quick replies to long outputs” has data for Claude Code only; otherwise it shows “—”. <b>With only a few blocks in a day, and time of day tangled up with the kind of work you were doing, this table only lines the conditions up. It can't tell you whether later means worse.</b>",
+        "sessions_h": "Conversation details ({n})",
+        "sessions_th": ("Time", "Tool", "Project", "Your messages", "Characters typed", "AI characters", "Tool calls"),
+        "method_h": "Method and limitations",
+        "method": (
+            "Data comes only from the Claude Code and Codex transcripts on this computer. When a conversation is resumed, forked or moved to another folder it gets copied into a new file; these are merged and deduplicated ({merged} files merged, {dups} duplicate events removed). Codex background reviews and subagents ({bg} threads) don't count as your use.",
+            "Only what you actually typed counts: content the system inserts automatically (system reminders, scheduled tasks, slash command output) is stripped first.",
+            "Codex transcripts have no AI reply length, tokens or reply timing, so metrics marked “Claude Code only” reflect Claude Code use only.",
+            "“Cognitive load” is deliberately not a single score. Recovery, fatigue and judgement are different things, and adding them up would only look precise.",
+            "Thresholds: the {i}-minute effective break (Albulescu et al. 2022) and {h} hours of sustained control (Blain et al. 2016, borrowed) come from research; the {f}-minute fatigue context, {c}-character long output and {s}-second quick reply are engineering conventions you can change in config.local.json.",
+            "Deliberately not done: comparisons across days, a single total score, judging whether decisions were right, guessing emotions, AI-written suggestions, push reminders.",
+        ),
+        "eyebrow": "Decision Pulse · {date} ({wd}) · generated {gen} · {role}",
+        "role": "Role: {r}", "no_role": "No role set, using general defaults",
+        "h1_today": "Today's cognitive load with AI", "h1_past": "Cognitive load with AI on {m}/{d}",
+        "footer": "decision-pulse · reads only the Claude Code and Codex transcripts on this computer",
+        "past_swaps": (("Today's", "That day's"), ("today's", "that day's"), ("Today", "That day"), ("today", "that day")),
+    },
+}
+L = UI[LANG]
+
+
+def tr(table, code):
+    """Show a Chinese code (level, reason, note, signal) in the interface language."""
+    if not EN:
+        return code
+    m = re.fullmatch(r"超過 (\d+) 小時", code or "")
+    if table == "notes" and m:
+        return L["notes"]["超過 {h} 小時"].format(h=m.group(1))
+    return L[table].get(code, code)
 
 
 def _f(v, digits=1):
@@ -965,14 +1249,15 @@ def _min(hhmm):
 def summary_line(out):
     d1, d2 = out["stage1_density"], out["stage2_recovery"]
     if not d1["human_messages"]:
-        return f"{out['date']} 沒有使用 AI 的紀錄。"
-    peak = (f"對話最密集在 {d1['peak_hour']}:00–{int(d1['peak_hour']) + 1:02d}:00（{d1['peak_hour_messages']} 則）"
+        return L["no_usage"].format(date=out["date"])
+    peak = (L["peak"].format(h=d1["peak_hour"], h2=f"{int(d1['peak_hour']) + 1:02d}", n=d1["peak_hour_messages"])
             if d1["peak_hour"] else "")
-    names = {"density": "決策密度", "recovery": "恢復窗口", "fatigue": "疲勞跡象", "judgement": "判斷品質"}
-    graded = "、".join(f"{names[k]}{v['level'] or '無法判斷'}" for k, v in out["levels"].items())
-    day = "今天" if out["is_today"] else "這天"
-    return (f"{day} {d1['conversations']} 段對話、實際對話 {_f(d2['active_min'])} 分鐘；{peak}；"
-            f"最長一段沒休息 {_f(d2['longest_block_min'])} 分鐘。四個階段：{graded}。")
+    graded = L["list_sep"].join(L["graded_item"].format(name=L["stage_names"][k],
+                                                         level=tr("levels", v["level"]) if v["level"] else L["cant_tell"])
+                                for k, v in out["levels"].items())
+    day = L["day_today"] if out["is_today"] else L["day_past"]
+    return L["summary"].format(day=day, conv=d1["conversations"], active=_f(d2["active_min"]), peak=peak,
+                               longest=_f(d2["longest_block_min"]), graded=graded)
 
 
 def render_html(out):
@@ -980,19 +1265,27 @@ def render_html(out):
     d1, d2, d3, d4 = out["stage1_density"], out["stage2_recovery"], out["stage3_fatigue"], out["stage4_judgement"]
     cfg = out["config"]
     date = datetime.fromisoformat(out["date"])
-    wd = "一二三四五六日"[date.weekday()]
-    both, cc = '<span class="cov">兩者</span>', '<span class="cov cc">僅 Claude Code</span>'
+    wd = L["weekdays"][date.weekday()]
+    both, cc = f'<span class="cov">{L["both"]}</span>', f'<span class="cov cc">{L["cc_only"]}</span>'
+    sep = L["list_sep"]
 
     def stat(label, value, unit="", cov=""):
         return (f'<div class="stat"><div class="s-l">{e(label)} {cov}</div>'
                 f'<div class="s-v">{value}<small>{e(unit)}</small></div></div>')
 
+    def st(key, value, cov="", **kw):
+        label, unit = L[key]
+        return stat(label, value, unit.format(**kw), cov)
+
+    def notes_of(lv):
+        return sep.join(tr("notes", n) for n in lv["notes"])
+
     # ---- graded chain: the mechanism as a flow, each stage coloured by its own level
     ratio = d4["fast_long_ratio"]
     lvls = out["levels"]
     cls_of = {"低": "lo", "中": "mi", "高": "hi"}
-    units = {"density": "則／活躍小時", "recovery": "分鐘沒有 10 分鐘休息",
-             "fatigue": "次切換／活躍小時", "judgement": f"長內容秒回（{d4['fast_long']}／{d4['long_replies']}）"}
+    units = dict(L["units"])
+    units["judgement"] = units["judgement"].format(a=d4["fast_long"], b=d4["long_replies"])
     nodes = []
     for n_i, (key, title) in enumerate(STAGES, 1):
         lv = lvls[key]
@@ -1000,7 +1293,7 @@ def render_html(out):
         pct = key == "judgement"
         v = lv["value"]
         shown = (f"{v * 100:.0f}%" if pct else _f(v)) if v is not None else "—"
-        tag = lv["level"] or "、".join(lv["notes"]) or "無法判斷"
+        tag = tr("levels", lv["level"]) if lv["level"] else (notes_of(lv) or L["cant_tell"])
         scale = ""
         if v is not None:
             vmax = hi * 1.6
@@ -1010,29 +1303,30 @@ def render_html(out):
                      f'<i class="rs-pin" style="left:{pos(v):.1f}%"></i></div>'
                      f'<div class="rs-cap"><span style="left:{pos(lo):.1f}%">{f"{lo * 100:.0f}%" if pct else _f(lo)}</span>'
                      f'<span style="left:{pos(hi):.1f}%">{f"{hi * 100:.0f}%" if pct else _f(hi)}</span></div>'
-                     f'<div class="rs-basis">門檻：{"研究＋經驗值" if key == "recovery" else "經驗值"}</div>')
-        extra = f'<div class="rn">{e("、".join(lv["notes"]))}</div>' if lv["level"] and lv["notes"] else ""
+                     f'<div class="rs-basis">{L["basis_mixed"] if key == "recovery" else L["basis_rule"]}</div>')
+        extra = f'<div class="rn">{e(notes_of(lv))}</div>' if lv["level"] and lv["notes"] else ""
         nodes.append(
             f'<a class="node {cls_of.get(lv["level"], "na")}" href="#s{n_i}"><span class="n-t">{e(title)}</span>'
             f'<span class="n-row"><span class="n-v">{shown}</span><span class="n-tag">{e(tag)}</span></span>'
             f'<span class="n-u">{e(units[key])}</span>{scale}{extra}</a>')
-    chain_html = ('<nav class="flow" aria-label="四階段風險分級">'
+    lv_name = L["levels"]
+    chain_html = (f'<nav class="flow" aria-label="{L["flow_label"]}">'
                   + '<span class="arrow" aria-hidden="true">→</span>'.join(nodes) + "</nav>"
-                  + '<div class="legend"><span><i class="sw lo"></i>低</span><span><i class="sw mi"></i>中</span>'
-                    '<span><i class="sw hi"></i>高</span><span>直線＝今天的數值落點；四個階段各自分級，不加總</span></div>')
+                  + f'<div class="legend"><span><i class="sw lo"></i>{lv_name["低"]}</span><span><i class="sw mi"></i>{lv_name["中"]}</span>'
+                    f'<span><i class="sw hi"></i>{lv_name["高"]}</span><span>{L["legend"]}</span></div>')
 
     # ---- rule-triggered suggestions, in a caring voice (fixed text, never generated)
     sugs = out["suggestions"]
     if sugs:
         items = "".join(
-            f'<li><span class="s-tag {cls_of.get(s["level"], "mi")}">{e(dict(STAGES)[s["stage"]][:1])} {e(s["level"])}</span>'
+            f'<li><span class="s-tag {cls_of.get(s["level"], "mi")}">{e(dict(STAGES)[s["stage"]][:1])} {e(tr("levels", s["level"]))}</span>'
             f'<div><div class="s-text">{e(s["text"])}</div>'
             f'<div class="s-why">{e(s["why"])} · {e(s["cite"])}</div></div></li>' for s in sugs)
-        sug_html = (f'<section class="care"><h2 class="care-h">今天想提醒你的幾件事</h2>'
-                    f'<p class="care-sub">辛苦了。下面是從今天的節奏裡看到、可以試試看的小調整。</p>'
+        sug_html = (f'<section class="care"><h2 class="care-h">{L["care_h"]}</h2>'
+                    f'<p class="care-sub">{L["care_sub"]}</p>'
                     f'<ul class="sugs">{items}</ul></section>')
     else:
-        sug_html = '<section class="care"><h2 class="care-h">今天的節奏還不錯，繼續保持。</h2></section>'
+        sug_html = f'<section class="care"><h2 class="care-h">{L["care_ok"]}</h2></section>'
 
     # ---- now
     now_html = ""
@@ -1040,29 +1334,29 @@ def render_html(out):
     if n:
         if n["active_now"]:
             lb = n["last_real_break"]
-            parts = [f"這一段已連續 <b>{_f(n['current_block_min'])} 分鐘</b>",
-                     f"最近 {WINDOW_MIN} 分鐘切換 <b>{n['switches_last_window']}</b> 次",
-                     f"上次 {IDLE_MIN} 分鐘以上的休息：{lb['start']}–{lb['end']}" if lb else "今天還沒有 10 分鐘以上的休息"]
-            txt = "；".join(parts)
+            parts = [L["now_block"].format(m=_f(n["current_block_min"])),
+                     L["now_switches"].format(w=WINDOW_MIN, n=n["switches_last_window"]),
+                     L["now_last_break"].format(i=IDLE_MIN, s=lb["start"], e=lb["end"]) if lb else L["now_no_break"]]
+            txt = L["sep"].join(parts)
             if n["over_fatigue"]:
-                txt += f'<div class="now-fact">距離上次 {IDLE_MIN} 分鐘以上的休息已經 {_f(n["current_block_min"])} 分鐘。</div>'
+                txt += f'<div class="now-fact">{L["now_over"].format(i=IDLE_MIN, m=_f(n["current_block_min"]))}</div>'
         else:
-            txt = f"已經 {_f(n['minutes_since_last_message'])} 分鐘沒有對話"
-        now_html = f'<section class="now"><span class="now-at">此刻 {e(n["at"])}</span><div>{txt}</div></section>'
+            txt = L["now_idle"].format(m=_f(n["minutes_since_last_message"]))
+        now_html = f'<section class="now"><span class="now-at">{e(L["now_at"].format(t=n["at"]))}</span><div>{txt}</div></section>'
 
     # ---- stage 1
     high_pct = f"{d1['high_messages'] / d1['human_messages'] * 100:.0f}%" if d1["human_messages"] else "—"
     reason_chips = []
-    for r, note in (("資訊量爆量", "" if d1["spike_rule_on"] else "（當天回覆少於 20 次，此規則未啟用）"),
-                    ("深夜", ""), ("疲勞情境", f"（所在活動段已連續 ≥ {cfg['fatigue_block_min']} 分鐘）"),
-                    ("高風險主題", "" if cfg["personal_topics"] else "（未設定關鍵字）")):
-        reason_chips.append(f'<li><span>{e(r)}{e(note)}</span><b>{d1["reason_counts"].get(r, 0)}</b></li>')
+    for r, note in (("資訊量爆量", "" if d1["spike_rule_on"] else L["spike_off"]),
+                    ("深夜", ""), ("疲勞情境", L["fatigue_note"].format(m=cfg["fatigue_block_min"])),
+                    ("高風險主題", "" if cfg["personal_topics"] else L["no_keywords"])):
+        reason_chips.append(f'<li><span>{e(tr("reasons", r))}{e(note)}</span><b>{d1["reason_counts"].get(r, 0)}</b></li>')
     act = d1["actions"]
     irr = d1["irreversible_detail"]
-    irr_txt = f"（{'、'.join(f'{k} {v}' for k, v in sorted(irr.items(), key=lambda kv: -kv[1]))}）" if irr else ""
+    irr_txt = L["irr_detail"].format(items=sep.join(f'{k} {v}' for k, v in sorted(irr.items(), key=lambda kv: -kv[1]))) if irr else ""
     action_rows = "".join(
-        f'<li><span>{e(ACTION_LABEL[k])}{e(irr_txt) if k == "irreversible" else ""}</span><b>{act.get(k, 0)}</b></li>'
-        for k in ACTION_LABEL)
+        f'<li><span>{e(L["actions"][k])}{e(irr_txt) if k == "irreversible" else ""}</span><b>{act.get(k, 0)}</b></li>'
+        for k in L["actions"])
     hours = [int(h) for h in d1["hourly"]]
     hmax = max(d1["hourly"].values(), default=1)
     hbars = ""
@@ -1073,33 +1367,33 @@ def render_html(out):
             hbars += (f'<div class="hcol"><span class="hn">{c or ""}</span>'
                       f'<div class="hbar{peak}" style="height:{c / hmax * 100:.0f}%"></div><span class="hx">{h:02d}</span></div>')
     seg_rows = "".join(
-        f'<tr><td>{e(s["name"])}{"（深夜）" if s["late_night"] and s["name"] != "深夜" else ""}</td>'
+        f'<tr><td>{e(tr("segments", s["name"]))}{L["late_tag"] if s["late_night"] and s["name"] != L["late_code_name"] else ""}</td>'
         f'<td class="num">{s["range"]}</td><td class="num">{s["messages"]}</td><td class="num">{_f(s["chars"])}</td></tr>'
         for s in d1["segments"])
-    spike_note = (f"資訊量爆量＝你發這則之前 AI 累積寫的字超過當天第 90 百分位（今天是 {_f(d1['spike_threshold_chars'])} 字）。"
-                  if d1["spike_rule_on"] else "")
+    spike_note = L["spike_note"].format(n=_f(d1["spike_threshold_chars"])) if d1["spike_rule_on"] else ""
+    th = L["seg_th"]
 
     stage1 = f"""
-<section id="s1" class="stage"><div class="st-h"><span class="st-n">1</span><div><h2>決策密度</h2>
-<p class="st-q">AI 讓決策密度暴增——今天有多少事經過你的判斷？</p></div></div>
-<div class="grid6">{stat("對話段數", d1['conversations'], "段", both)}{stat("你發的訊息", _f(d1['human_messages']), "則", both)}
-{stat("你打的字", _f(d1['human_chars']), "字", both)}{stat("AI 回的字", _f(d1['assistant_chars']), "字", cc)}
-{stat("資訊量 token", _f(d1['tokens']), "", cc)}{stat("思考量 thinking token", _f(d1['thinking_tokens']), "", cc)}</div>
+<section id="s1" class="stage"><div class="st-h"><span class="st-n">1</span><div><h2>{L["s1_h"]}</h2>
+<p class="st-q">{L["s1_q"]}</p></div></div>
+<div class="grid6">{st("st_conv", d1['conversations'], both)}{st("st_msgs", _f(d1['human_messages']), both)}
+{st("st_typed", _f(d1['human_chars']), both)}{st("st_ai_chars", _f(d1['assistant_chars']), cc)}
+{st("st_tokens", _f(d1['tokens']), cc)}{st("st_thinking", _f(d1['thinking_tokens']), cc)}</div>
 <div class="two">
-<div class="card"><h3>決策事件 {cc}</h3><ul class="kv">
-<li><span>AI 停下來要你決定</span><b>{d1['ai_asked_you']}</b></li>
-<li><span>你改變主意（排了指令又取消）</span><b>{d1['changed_mind']}</b></li>
-<li><span>你中止 AI 的動作</span><b>{d1['stopped_ai']}</b></li></ul></div>
-<div class="card"><h3>一般 vs 高度重要</h3>
-<div class="split"><div><div class="big high">{d1['high_messages']}</div><div class="s-l">高度重要訊息（佔 {high_pct}）{both}</div></div>
-<div><div class="big">{d1['human_messages'] - d1['high_messages']}</div><div class="s-l">一般訊息</div></div></div>
+<div class="card"><h3>{L["events_h"]} {cc}</h3><ul class="kv">
+<li><span>{L["ev_asked"]}</span><b>{d1['ai_asked_you']}</b></li>
+<li><span>{L["ev_changed"]}</span><b>{d1['changed_mind']}</b></li>
+<li><span>{L["ev_stopped"]}</span><b>{d1['stopped_ai']}</b></li></ul></div>
+<div class="card"><h3>{L["hi_vs_h"]}</h3>
+<div class="split"><div><div class="big high">{d1['high_messages']}</div><div class="s-l">{L["hi_msgs"].format(p=high_pct)}{both}</div></div>
+<div><div class="big">{d1['human_messages'] - d1['high_messages']}</div><div class="s-l">{L["normal_msgs"]}</div></div></div>
 <ul class="kv small">{"".join(reason_chips)}</ul>
-<h4>高度重要動作 {cc}</h4><ul class="kv small">{action_rows}</ul>
-<p class="note">{e(spike_note)}一則訊息可能同時符合多條規則。</p></div></div>
+<h4>{L["hi_actions"]} {cc}</h4><ul class="kv small">{action_rows}</ul>
+<p class="note">{e(spike_note)}{L["multi_rule"]}</p></div></div>
 <div class="two">
-<div class="card"><h3>早中晚 {both}</h3><table><tr><th>時段</th><th class="num">時間</th><th class="num">訊息</th><th class="num">你打的字</th></tr>{seg_rows}</table></div>
-<div class="card"><h3>每小時訊息量 {both}</h3><div class="hchart">{hbars}</div>
-<p class="note">深色＝最密集的一小時。</p></div></div>
+<div class="card"><h3>{L["seg_h"]} {both}</h3><table><tr><th>{th[0]}</th><th class="num">{th[1]}</th><th class="num">{th[2]}</th><th class="num">{th[3]}</th></tr>{seg_rows}</table></div>
+<div class="card"><h3>{L["hourly_h"]} {both}</h3><div class="hchart">{hbars}</div>
+<p class="note">{L["hourly_note"]}</p></div></div>
 </section>"""
 
     # ---- stage 2 rhythm strip
@@ -1115,28 +1409,30 @@ def render_html(out):
         segs = []
         for b in d2["breaks"]:
             cls = "brk" if b["likely_away"] else "brk soft"
-            lbl = f'<span class="brk-lbl">{_f(b["minutes"], 0)} 分</span>' if b["minutes"] >= 30 else ""
+            lbl = f'<span class="brk-lbl">{L["brk_lbl"].format(m=_f(b["minutes"], 0))}</span>' if b["minutes"] >= 30 else ""
             segs.append(f'<div class="{cls}" style="left:{x(b["start"]):.2f}%;width:{x(b["end"]) - x(b["start"]):.2f}%" '
-                        f'title="{b["start"]}→{b["end"]}，{_f(b["minutes"])} 分鐘沒有輸入">{lbl}</div>')
+                        f'title="{L["brk_title"].format(s=b["start"], e=b["end"], m=_f(b["minutes"]))}">{lbl}</div>')
         for b in d2["blocks"]:
             segs.append(f'<div class="blk" style="left:{x(b["start"]):.2f}%;width:{max(x(b["end"]) - x(b["start"]), 0.4):.2f}%" '
-                        f'title="{b["start"]}–{b["end"]}，{_f(b["minutes"])} 分鐘"></div>')
+                        f'title="{L["blk_title"].format(s=b["start"], e=b["end"], m=_f(b["minutes"]))}"></div>')
         hrs = list(range(t0, t1 + 1, 60))
         ticks = "".join(f'<span style="left:{(h - t0) / span * 100:.2f}%;transform:translateX('
                         f'{"0" if j == 0 else "-100%" if j == len(hrs) - 1 else "-50%"})">{h // 60:02d}:00</span>'
                         for j, h in enumerate(hrs))
+        sl = L["strip_legend"]
         strip = (f'<div class="strip-wrap"><div class="strip-inner">'
                  f'<div class="strip">{"".join(segs)}</div><div class="ticks">{ticks}</div></div></div>'
-                 f'<div class="legend"><span><i class="sw a"></i>實際在對話</span><span><i class="sw b"></i>真的離開</span>'
-                 f'<span><i class="sw c"></i>沒輸入但 AI 還在跑</span></div>')
+                 f'<div class="legend"><span><i class="sw a"></i>{sl[0]}</span><span><i class="sw b"></i>{sl[1]}</span>'
+                 f'<span><i class="sw c"></i>{sl[2]}</span></div>')
 
+    over = L["over_yes"] if d2['exceeds_sustained_threshold'] else L["over_no"]
     stage2 = f"""
-<section id="s2" class="stage"><div class="st-h"><span class="st-n">2</span><div><h2>恢復窗口</h2>
-<p class="st-q">恢復窗口消失——今天有沒有真的停下來？</p></div></div>
-<div class="grid4">{stat("實際對話時間", _f(d2['active_min']), "分", both)}{stat("最長一段沒休息", _f(d2['longest_block_min']), "分", both)}
-{stat("真正離開", d2['real_breaks'], "次", both)}{stat("最長一次休息", _f(d2['longest_break_min']), "分", both)}</div>
+<section id="s2" class="stage"><div class="st-h"><span class="st-n">2</span><div><h2>{L["s2_h"]}</h2>
+<p class="st-q">{L["s2_q"]}</p></div></div>
+<div class="grid4">{st("st_active", _f(d2['active_min']), both)}{st("st_longest", _f(d2['longest_block_min']), both)}
+{st("st_away", d2['real_breaks'], both)}{st("st_longest_break", _f(d2['longest_break_min']), both)}</div>
 <div class="card">{strip}</div>
-<p class="ref">「真正離開」＝連續 {IDLE_MIN} 分鐘以上沒有你的輸入、AI 也沒在跑。{IDLE_MIN} 分鐘對齊 Albulescu et al. (2022)：不到 10 分鐘的休息不足以讓高認知需求的工作恢復（信心中高）。持續高強度認知控制約 {SUSTAINED_CONTROL_HOURS} 小時後前額葉出現代價（Blain et al. 2016，借用的實驗室門檻，信心中）——今天{"已" if d2['exceeds_sustained_threshold'] else "未"}超過。</p>
+<p class="ref">{L["s2_ref"].format(i=IDLE_MIN, h=SUSTAINED_CONTROL_HOURS, over=over)}</p>
 </section>"""
 
     # ---- stage 3
@@ -1144,53 +1440,57 @@ def render_html(out):
     lmax = max([b["median_len"] or 0 for b in lbb] or [1]) or 1
     lbars = "".join(f'<div class="lcol"><span class="ln">{_f(b["median_len"], 0)}</span>'
                     f'<div class="lbar" style="height:{(b["median_len"] or 0) / lmax * 100:.0f}%"></div>'
-                    f'<span class="lx">{b["start"]}</span><span class="lx">{b["messages"]} 則</span></div>' for b in lbb)
+                    f'<span class="lx">{b["start"]}</span><span class="lx">{L["lx_msgs"].format(n=b["messages"])}</span></div>' for b in lbb)
     sw = d3["sharpest_window"]
+    storm = (L["storm"].format(s=sw["start"], e=sw["end"], n=sw["switches"], r=sw["returns"]) if sw
+             else L["storm_none"])
     stage3 = f"""
-<section id="s3" class="stage"><div class="st-h"><span class="st-n">3</span><div><h2>認知疲勞的跡象</h2>
-<p class="st-q">注意力被切碎、指令變短、深夜還在用？</p></div></div>
-<div class="grid4">{stat("切換", d3['switches'], "次", both)}{stat("其中跳回先前丟下的對話", d3['returns'], "次", both)}
-{stat("切換密度", _f(d3['per_active_hour']), "次／活躍小時", both)}{stat("同時開著", d3['peak_concurrent'], f"段 @ {d3['peak_concurrent_at'] or '—'}", both)}</div>
+<section id="s3" class="stage"><div class="st-h"><span class="st-n">3</span><div><h2>{L["s3_h"]}</h2>
+<p class="st-q">{L["s3_q"]}</p></div></div>
+<div class="grid4">{st("st_switches", d3['switches'], both)}{st("st_returns", d3['returns'], both)}
+{st("st_sw_density", _f(d3['per_active_hour']), both)}{st("st_concurrent", d3['peak_concurrent'], both, t=d3['peak_concurrent_at'] or '—')}</div>
 <div class="two">
-<div class="card"><h3>最密集的 {WINDOW_MIN} 分鐘 {both}</h3>
-<p class="lead-s">{(f"{sw['start']}–{sw['end']}：{sw['switches']} 次切換，其中 {sw['returns']} 次跳回") if sw else "今天沒有切換密集的時窗"}</p>
-<ul class="kv small"><li><span>最長不切換連續段</span><b>{d3['longest_focus_run']} 則</b></li>
-<li><span>深夜訊息</span><b>{d3['late_night_messages']}</b></li></ul></div>
-<div class="card"><h3>指令長度 · 每段活動的中位數字數 {both}</h3><div class="lchart">{lbars}</div>
-<p class="note">過載時指令傾向變短、變含糊。全天中位數 {_f(d3['median_msg_len'], 0)} 字。</p></div></div>
-<p class="ref">「跳回」＝切到今天稍早用過、中途離開的對話，最接近注意力殘留研究說的未閉合切換（Leroy 2009；Mark et al. 2008，信心中高）。切換以對話為單位，同一個視窗裡換資料夾不算。</p>
+<div class="card"><h3>{L["storm_h"].format(w=WINDOW_MIN)} {both}</h3>
+<p class="lead-s">{storm}</p>
+<ul class="kv small"><li><span>{L["focus_run"]}</span><b>{L["focus_run_v"].format(n=d3['longest_focus_run'])}</b></li>
+<li><span>{L["late_msgs"]}</span><b>{d3['late_night_messages']}</b></li></ul></div>
+<div class="card"><h3>{L["len_h"]} {both}</h3><div class="lchart">{lbars}</div>
+<p class="note">{L["len_note"].format(n=_f(d3['median_msg_len'], 0))}</p></div></div>
+<p class="ref">{L["s3_ref"]}</p>
 </section>"""
 
     # ---- stage 4
     vrows = "".join(f'<tr><td>{e(v["project"] or "")}</td><td class="num">{v["high_messages"]}</td>'
-                    f'<td>{e("、".join(v["signals"]) or "無")}</td></tr>' for v in d4["verification"])
+                    f'<td>{e(sep.join(tr("signals", s) for s in v["signals"]) or L["no_signal"])}</td></tr>' for v in d4["verification"])
     ep = f"{d4['explore_calls'] / d4['produce_calls']:.2f}" if d4["produce_calls"] else "—"
+    vth = L["verify_th"]
     stage4 = f"""
-<section id="s4" class="stage"><div class="st-h"><span class="st-n">4</span><div><h2>判斷品質</h2>
-<p class="st-q">判斷品質下滑——AI 講完你有沒有真的看？</p></div></div>
-<div class="grid4">{stat("長內容後秒回", _f(ratio * 100 if ratio is not None else None, 0), "%", cc)}{stat("長內容回覆次數", d4['long_replies'], "次", cc)}
-{stat("回覆延遲中位數", _f(d4['median_reply_sec']), "秒", cc)}{stat("錯誤後重試", d4['retries_after_error'], f"／{d4['tool_errors']} 次錯誤", cc)}</div>
+<section id="s4" class="stage"><div class="st-h"><span class="st-n">4</span><div><h2>{L["s4_h"]}</h2>
+<p class="st-q">{L["s4_q"]}</p></div></div>
+<div class="grid4">{st("st_fast", _f(ratio * 100 if ratio is not None else None, 0), cc)}{st("st_long", d4['long_replies'], cc)}
+{st("st_reply", _f(d4['median_reply_sec']), cc)}{st("st_retry", d4['retries_after_error'], cc, n=d4['tool_errors'])}</div>
 <div class="two">
-<div class="card"><h3>高度重要訊息所在對話的驗證行為 {cc}</h3>
-{("<table><tr><th>專案</th><th class='num'>高度重要訊息</th><th>驗證訊號</th></tr>" + vrows + "</table>") if vrows else '<p class="note">沒有 Claude Code 的高度重要訊息。</p>'}</div>
-<div class="card"><h3>工作訊號（信心低中）{cc}</h3><ul class="kv small">
-<li><span>探索／產出比（讀、查 vs 寫、改）</span><b>{ep}</b></li><li><span>派 subagent</span><b>{d4['agent_spawns']}</b></li></ul>
-<p class="note">多讀少寫可能是謹慎，也可能只是任務本身要查很多。</p></div></div>
-<p class="ref">「長內容後秒回」＝AI 自你上次發言後寫了 {cfg['long_output_chars']} 字以上，你 {cfg['fast_accept_sec']} 秒內就回覆（自動化自滿，Parasuraman &amp; Manzey 2010，信心中）。這一階段只看做判斷時的條件，不判斷決定對不對——對話紀錄沒有結果資料。</p>
+<div class="card"><h3>{L["verify_h"]} {cc}</h3>
+{(f"<table><tr><th>{vth[0]}</th><th class='num'>{vth[1]}</th><th>{vth[2]}</th></tr>" + vrows + "</table>") if vrows else f'<p class="note">{L["verify_none"]}</p>'}</div>
+<div class="card"><h3>{L["work_h"]}{" " if EN else ""}{cc}</h3><ul class="kv small">
+<li><span>{L["explore"]}</span><b>{ep}</b></li><li><span>{L["agents"]}</span><b>{d4['agent_spawns']}</b></li></ul>
+<p class="note">{L["work_note"]}</p></div></div>
+<p class="ref">{L["s4_ref"].format(c=cfg['long_output_chars'], s=cfg['fast_accept_sec'])}</p>
 </section>"""
 
     # ---- G10 block table
     trs = "".join(
-        f'<tr><td>{r["start"]}–{r["end"]}</td><td>{e(r["segment"] or "")}</td><td class="num">{_f(r["minutes"])}</td>'
+        f'<tr><td>{r["start"]}–{r["end"]}</td><td>{e(tr("segments", r["segment"] or ""))}</td><td class="num">{_f(r["minutes"])}</td>'
         f'<td class="num">{_f(r["rest_before"])}</td><td class="num">{r["messages"]}</td>'
         f'<td class="num">{_f(r["switch_density"])}</td><td class="num">{_f(r["median_len"], 0)}</td>'
         f'<td class="num">{(str(r["fast_long"]) + " / " + str(r["long_replies"])) if r["long_replies"] else "—"}</td>'
-        f'<td class="num">{r["high"]}</td><td>{e("、".join(r["tools"]))}</td></tr>' for r in out["block_table"])
+        f'<td class="num">{r["high"]}</td><td>{e(sep.join(r["tools"]))}</td></tr>' for r in out["block_table"])
+    tth = L["table_th"]
     table = f"""
-<section class="stage"><h2 class="plain">每段活動的條件並排</h2>
-<div class="card tbl"><table><tr><th>時間</th><th>時段</th><th class="num">長度（分）</th><th class="num">之前休息（分）</th>
-<th class="num">訊息</th><th class="num">切換密度</th><th class="num">指令長度</th><th class="num">長內容秒回</th><th class="num">高度重要</th><th>工具</th></tr>{trs}</table></div>
-<p class="note">只列長度 ≥ {TABLE_MIN_BLOCK_MIN} 分鐘且 ≥ {TABLE_MIN_BLOCK_MSGS} 則訊息的活動段。「長內容秒回」只有 Claude Code 有資料，沒有就顯示「—」。<b>單日只有幾段、時段又跟做什麼工作疊在一起，這張表只把條件並排給你看，無法回答「越晚是否越差」。</b></p>
+<section class="stage"><h2 class="plain">{L["table_h"]}</h2>
+<div class="card tbl"><table><tr><th>{tth[0]}</th><th>{tth[1]}</th><th class="num">{tth[2]}</th><th class="num">{tth[3]}</th>
+<th class="num">{tth[4]}</th><th class="num">{tth[5]}</th><th class="num">{tth[6]}</th><th class="num">{tth[7]}</th><th class="num">{tth[8]}</th><th>{tth[9]}</th></tr>{trs}</table></div>
+<p class="note">{L["table_note"].format(m=TABLE_MIN_BLOCK_MIN, n=TABLE_MIN_BLOCK_MSGS)}</p>
 </section>"""
 
     # ---- details
@@ -1199,19 +1499,18 @@ def render_html(out):
                     f'<td class="num">{s["human_messages"]}</td><td class="num">{_f(s["human_chars"])}</td>'
                     f'<td class="num">{_f(s.get("assistant_chars"))}</td><td class="num">{_f(s.get("tool_calls"))}</td></tr>'
                     for s in out["sessions"])
+    sth = L["sessions_th"]
+    method = "\n".join(f"<p>{p}</p>" for p in L["method"]).format(
+        merged=src['claude_files_merged'], dups=_f(src['claude_fork_duplicates_removed']), bg=src['codex_background_threads'],
+        i=IDLE_MIN, h=SUSTAINED_CONTROL_HOURS, f=cfg['fatigue_block_min'], c=cfg['long_output_chars'], s=cfg['fast_accept_sec'])
     details = f"""
-<details><summary>對話明細（{len(out['sessions'])} 段）</summary><div class="card tbl"><table>
-<tr><th>時間</th><th>工具</th><th>專案</th><th class="num">你發話</th><th class="num">你打的字</th><th class="num">AI 回的字</th><th class="num">工具呼叫</th></tr>{srows}</table></div></details>
-<details><summary>方法與限制</summary><div class="card method">
-<p>資料只來自這台電腦上的 Claude Code 與 Codex 對話紀錄。同一段對話被續寫、分叉或換資料夾時會被複製成新檔案，已合併去重（合併 {src['claude_files_merged']} 個檔案、去掉 {_f(src['claude_fork_duplicates_removed'])} 筆重複事件）。Codex 的背景自動審查與子代理（{src['codex_background_threads']} 條）不算你的使用。</p>
-<p>只算你真正打的字：系統自動插入的內容（例如 system-reminder、排程任務、slash command 輸出）會先剝除。</p>
-<p>Codex 的紀錄沒有 AI 回覆字數、token 與回覆延遲，標「僅 Claude Code」的指標只反映 Claude Code 的使用。</p>
-<p>「認知負荷」刻意不做成單一分數——恢復窗口、疲勞跡象、判斷品質是不同的東西，加起來會製造假精確。</p>
-<p>門檻：{IDLE_MIN} 分鐘有效休息（Albulescu et al. 2022）、{SUSTAINED_CONTROL_HOURS} 小時持續控制（Blain et al. 2016，借用）有文獻依據；疲勞情境 {cfg['fatigue_block_min']} 分鐘、長內容 {cfg['long_output_chars']} 字、秒回 {cfg['fast_accept_sec']} 秒是工程慣例，可在 config.local.json 調整。</p>
-<p>刻意不做：跨日比較、單一總分、判斷決策對不對、情緒推論、AI 生成的建議句、主動推播。</p>
+<details><summary>{L["sessions_h"].format(n=len(out['sessions']))}</summary><div class="card tbl"><table>
+<tr><th>{sth[0]}</th><th>{sth[1]}</th><th>{sth[2]}</th><th class="num">{sth[3]}</th><th class="num">{sth[4]}</th><th class="num">{sth[5]}</th><th class="num">{sth[6]}</th></tr>{srows}</table></div></details>
+<details><summary>{L["method_h"]}</summary><div class="card method">
+{method}
 </div></details>"""
 
-    css = """
+    css_zh = """
 :root{--bg:#F4F6F3;--surface:#FFFFFF;--text:#1B211D;--muted:#67716B;--border:#DDE3DC;--track:#ECEFEA;
 --accent:#2F5D62;--accent-soft:#DCEAE8;--high:#B5541F;--high-soft:#F5E6DA;--cc:#3A6EA5;--lo:#3F7D4E;--lo-soft:#E0EDE1;--mi:#8A5A00;--mi-soft:#F6E7C4;--hi:#B5541F;--hi-soft:#F5E1D3;color-scheme:light}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161A;--surface:#1A1F23;--text:#ECEFEC;--muted:#96A39B;--border:#2A3238;--track:#20262A;
@@ -1309,31 +1608,44 @@ details .card{margin-top:10px}
 .method p{font-size:13px;color:var(--muted);margin:0 0 10px;max-width:78ch}.method p:last-child{margin:0}
 footer{font-size:11.5px;color:var(--muted);text-align:center}
 """
-    page = f"""<title>Decision Pulse {int(out['date'][5:7])}/{int(out['date'][8:])}</title>
+    # A CJK font draws curly quotes and apostrophes full-width ("You’ ve"), so
+    # English pages put a Latin system font first and keep Noto Sans TC as fallback.
+    latin = "-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,"
+    css = css_zh.replace("font-family:'Noto Sans TC',", "font-family:" + latin + "'Noto Sans TC',") if EN else css_zh
+    role_txt = (L["role"].format(r=ROLE_NAMES_EN.get(cfg['role'], cfg['role']) if EN else cfg['role'])
+                if cfg['role'] else L["no_role"])
+    mm, dd = int(out['date'][5:7]), int(out['date'][8:])
+    h1 = L["h1_today"] if out["is_today"] else L["h1_past"].format(m=mm, d=dd)
+    page = f"""<title>Decision Pulse {mm}/{dd}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Noto+Sans+TC:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>{css}</style>
-<div class="page">
-<header><div class="eyebrow">Decision Pulse · {out['date']}（週{wd}）· 產生於 {e(out['generated_at'])} · {e(("職能：" + cfg['role']) if cfg['role'] else "尚未設定職能，使用通用預設")}</div>
-<h1>{"今天" if out["is_today"] else f"{int(out['date'][5:7])}/{int(out['date'][8:])} "}用 AI 的認知負荷</h1></header>
+<div class="page"{' lang="en"' if EN else ""}>
+<header><div class="eyebrow">{L["eyebrow"].format(date=out['date'], wd=wd, gen=e(out['generated_at']), role=e(role_txt))}</div>
+<h1>{h1}</h1></header>
 <p class="lead">{e(summary_line(out))}</p>
 {now_html}
 {chain_html}
 {sug_html}
 {stage1}{stage2}{stage3}{stage4}{table}
 <section>{details}</section>
-<footer>decision-pulse · 只讀這台電腦上的 Claude Code 與 Codex 紀錄</footer>
+<footer>{L["footer"]}</footer>
 </div>
 """
-    # 查過去某天時，頁面上所有「今天」改成「這天」（建議文字、區塊標題、說明都共用同一套字串）
-    return page if out["is_today"] else page.replace("今天", "這天")
+    # Looking at a past day: every "today" on the page becomes "that day"
+    # (suggestions, headings and notes share the same strings).
+    if not out["is_today"]:
+        for a, b in L["past_swaps"]:
+            page = page.replace(a, b)
+    return page
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None)
     ap.add_argument("--role", default=None, help="try another role's preset without editing config (read at import)")
+    ap.add_argument("--lang", default=None, help="interface language, zh-TW or en, without editing config (read at import)")
     ap.add_argument("--html", default=None, help="write the dashboard page to this path")
     ap.add_argument("--json", action="store_true", help="also print the full JSON")
     ap.add_argument("--save", action="store_true",
