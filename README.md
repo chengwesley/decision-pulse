@@ -4,6 +4,11 @@
 
 **看看你今天用 AI 工作，腦袋還有沒有餘裕。**
 
+<p align="center">
+  <a href="docs/decision-pulse-intro.mp4"><img src="docs/decision-pulse-intro.gif" alt="Decision Pulse 一分鐘介紹動畫" width="720"></a>
+</p>
+<p align="center"><sub>點圖片看含配樂的完整影片（MP4，56 秒）</sub></p>
+
 Decision Pulse 是一個 AI agent skill（通用的 `SKILL.md` 格式），Claude Code、Codex、GitHub Copilot、Gemini CLI、Cursor 都能安裝。它讀你電腦上當天的 Claude Code 與 Codex 對話紀錄，產生一頁儀表板，告訴你今天在哪一段最吃力，並附上有認知科學依據的小提醒。
 
 > An agent skill (standard `SKILL.md` format) for Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor. It reads today's local Claude Code / Codex transcripts and shows, in one page, where your cognitive load piled up — with gentle, research-backed suggestions. The interface is available in Traditional Chinese and English.
