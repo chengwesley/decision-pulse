@@ -83,6 +83,8 @@ Restart your AI tool once so it picks up the new skill. If you install in both l
 
 Official docs: [Codex](https://learn.chatgpt.com/docs/build-skills), [GitHub Copilot](https://code.visualstudio.com/docs/agent-customization/agent-skills), [Gemini CLI](https://geminicli.com/docs/cli/skills/), [Cursor](https://cursor.com/docs/skills).
 
+Rather not use git? Decision Pulse is also free on the [Agensi](https://www.agensi.io/creators/wesley-cheng) skill marketplace: download the ZIP from the web, or search and install it from any AI tool connected to the Agensi MCP.
+
 ## Use
 
 Just ask in plain language (in Claude Code you can also type `/decision-pulse`), for example:
