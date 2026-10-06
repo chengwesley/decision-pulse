@@ -4,6 +4,11 @@
 
 **See whether your brain still has headroom after a day of working with AI.**
 
+<p align="center">
+  <a href="docs/decision-pulse-intro.en.mp4"><img src="docs/decision-pulse-intro.en.gif" alt="Decision Pulse 30-second intro animation" width="640"></a>
+</p>
+<p align="center"><sub>Click the image for the full video with music (MP4, 30 seconds)</sub></p>
+
 Decision Pulse is an agent skill (standard `SKILL.md` format) that you can install in Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor. It reads today's Claude Code and Codex transcripts on your own computer, builds a one-page dashboard showing where the day got heavy, and adds a few gentle suggestions backed by cognitive science.
 
 > **The whole interface works in English**: the dashboard, the suggestions and the desktop clock. Set `"lang": "en"` in `config.local.json` (the AI does this for you the first time if you ask in English).
