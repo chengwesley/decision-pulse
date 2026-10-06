@@ -88,6 +88,8 @@ Windows 的 PowerShell 把 `~` 換成 `$HOME`，例如 `"$HOME\.agents\skills\de
 
 各工具的官方說明：[Codex](https://learn.chatgpt.com/docs/build-skills)、[GitHub Copilot](https://code.visualstudio.com/docs/agent-customization/agent-skills)、[Gemini CLI](https://geminicli.com/docs/cli/skills/)、[Cursor](https://cursor.com/docs/skills)。
 
+不想用 git 的話，Decision Pulse 也在 [Agensi](https://www.agensi.io/creators/wesley-cheng) skill marketplace 免費提供，可以從網頁下載 ZIP，或在接了 Agensi MCP 的 AI 工具裡直接搜尋安裝。
+
 ## 使用
 
 在 AI 工具裡直接用口語問（Claude Code 也可以輸入 `/decision-pulse`），例如：
